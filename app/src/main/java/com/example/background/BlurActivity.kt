@@ -55,6 +55,7 @@ class BlurActivity : AppCompatActivity() {
             cancelButton.visibility = View.VISIBLE
             goButton.visibility = View.GONE
             seeFileButton.visibility = View.GONE
+            progressBar.progress = 0
         }
     }
 

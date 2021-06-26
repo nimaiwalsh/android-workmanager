@@ -17,10 +17,33 @@
 package com.example.background
 
 import android.app.Application
+import androidx.work.Configuration
 import timber.log.Timber
 import timber.log.Timber.DebugTree
 
-class BlurApplication() : Application() {
+class BlurApplication() : Application(), Configuration.Provider {
+
+    /**
+     * CONFIGURE WORKMANAGER TO LOG ALL MESSAGES WHEN IN DEBUG MODE
+     *
+     * You can use an on-demand initialization by implementing WorkManager's
+     * Configuration.Provider interface in your Application class.
+     * The first time your application gets the WorkManager's instance using getInstance(context),
+     * WorkManager initializes itself using the configuration returned by getWorkManagerConfiguration().
+     * */
+
+    override fun getWorkManagerConfiguration(): Configuration {
+        return if (BuildConfig.DEBUG) {
+            Configuration.Builder()
+                    .setMinimumLoggingLevel(android.util.Log.DEBUG)
+                    .build()
+        } else {
+            Configuration.Builder()
+                    .setMinimumLoggingLevel(android.util.Log.ERROR)
+                    .build()
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
         if (BuildConfig.DEBUG) {
