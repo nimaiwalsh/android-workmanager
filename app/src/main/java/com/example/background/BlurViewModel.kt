@@ -19,23 +19,31 @@ package com.example.background
 import android.app.Application
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
-import androidx.work.Data
-import androidx.work.OneTimeWorkRequest
-import androidx.work.WorkManager
+import androidx.lifecycle.LiveData
+import androidx.work.*
 import com.example.background.workers.BlurWorker
+import com.example.background.workers.SaveImageToFileWorker
 import com.example.background.workers.makeStatusNotification
+import com.example.background.workers.CleanupWorker as CleanupWorker
 
 
 class BlurViewModel(application: Application) : AndroidViewModel(application) {
 
     internal var imageUri: Uri? = null
     internal var outputUri: Uri? = null
+    internal val outputWorkInfos: LiveData<List<WorkInfo>>
 
     /**
      * Create the WorkRequest to apply the blur and save the resulting image
      * @param blurLevel The amount to blur the image
      */
     private val workManager = WorkManager.getInstance(application)
+
+    init {
+        // This transformation makes sure that whenever the current work Id changes the WorkInfo
+        // the UI is listening to changes
+        outputWorkInfos = workManager.getWorkInfosByTagLiveData(TAG_OUTPUT)
+    }
 
     /***
      * We only want the image to be blurred once when the Go button is clicked. The applyBlur method is called when the Go button is clicked,
@@ -44,11 +52,51 @@ class BlurViewModel(application: Application) : AndroidViewModel(application) {
      *
      */
     internal fun applyBlur(blurLevel: Int) {
+        // Single request
+        // workManager.enqueue(blurWorkRequest)
+
+        // OR
+
+        // WorkContinuation, which defines a chain of WorkRequests.
+
+        // Create charging / low storage constraint
+        val constraints = Constraints.Builder()
+            .setRequiresCharging(true)
+            .build()
+
+        // Add WorkRequest to Cleanup temporary images
+        var continuation = workManager
+            //
+            .beginUniqueWork(
+                IMAGE_MANIPULATION_WORK_NAME,
+                ExistingWorkPolicy.REPLACE,
+                OneTimeWorkRequest.from(CleanupWorker::class.java)
+            )
+        //.beginWith(OneTimeWorkRequest.from(CleanupWorker::class.java))
+
+        // Add WorkRequest to blur the image
         // You can setConstraints to add when the request should start, i.e network activity
         val blurWorkRequest = OneTimeWorkRequest.Builder(BlurWorker::class.java)
-                .setInputData(createInputDataForUri())
-                .build()
-        workManager.enqueue(blurWorkRequest)
+            .setInputData(createInputDataForUri())
+            .build()
+
+        continuation = continuation.then(blurWorkRequest)
+
+        // Add WorkRequest to save the image to the filesystem
+        val save = OneTimeWorkRequestBuilder<SaveImageToFileWorker>()
+            .setConstraints(constraints)
+            .addTag(TAG_OUTPUT)
+            .build()
+
+        continuation = continuation.then(save)
+
+        // Actually start the work
+        continuation.enqueue()
+    }
+
+    // cancel work by unique chain name, because you want to cancel all work in the chain, not just a particular step.
+    internal fun cancelWork() {
+        workManager.cancelUniqueWork(IMAGE_MANIPULATION_WORK_NAME)
     }
 
     /**
@@ -62,6 +110,7 @@ class BlurViewModel(application: Application) : AndroidViewModel(application) {
         }
         return builder.build()
     }
+
 
     private fun uriOrNull(uriString: String?): Uri? {
         return if (!uriString.isNullOrEmpty()) {
